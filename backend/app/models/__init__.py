@@ -1,3 +1,13 @@
+from app.models.course import (
+    Course,
+    CourseAudit,
+    CourseCategory,
+    CourseChapter,
+    CourseLesson,
+    CourseStatus,
+    LessonType,
+)
+from app.models.file import FilePurpose, FileStatus, StoredFile
 from app.models.rbac import OperationLog, Permission, Role, role_permissions, user_roles
 from app.models.user import LoginLog, RefreshToken, User, UserStatus
 
@@ -18,13 +28,7 @@ __all__ = [
     "CourseLesson",
     "CourseStatus",
     "LessonType",
+    "FilePurpose",
+    "FileStatus",
+    "StoredFile",
 ]
-from app.models.course import (
-    Course,
-    CourseAudit,
-    CourseCategory,
-    CourseChapter,
-    CourseLesson,
-    CourseStatus,
-    LessonType,
-)

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     minio_access_key: str = "eduflow"
     minio_secret_key: str = "eduflow-secret"
     minio_bucket: str = "eduflow"
+    minio_secure: bool = False
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
