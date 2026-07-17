@@ -27,6 +27,7 @@ from app.models.learning import (
     LearningDailyStat,
     LessonProgress,
 )
+from app.models.notification import Notification, NotificationType, UserNotification
 from app.models.rbac import OperationLog, Permission, Role, role_permissions, user_roles
 from app.models.user import LoginLog, RefreshToken, User, UserStatus
 
@@ -65,4 +66,7 @@ __all__ = [
     "QuestionOption",
     "QuestionType",
     "WrongQuestion",
+    "Notification",
+    "NotificationType",
+    "UserNotification",
 ]

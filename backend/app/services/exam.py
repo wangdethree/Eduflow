@@ -25,6 +25,8 @@ from app.models.exam import (
     QuestionType,
     WrongQuestion,
 )
+from app.models.learning import CourseEnrollment
+from app.models.notification import Notification, NotificationType, UserNotification
 from app.models.user import User
 from app.repositories.exam import ExamRepository
 from app.repositories.learning import LearningRepository
@@ -111,6 +113,25 @@ class ExamService:
             raise ConflictException("试卷不存在、无权使用或没有题目", 60012)
         exam = Exam(teacher_id=self.current_user.id, **payload.model_dump())
         self.session.add(exam)
+        await self.session.flush()
+        student_ids = list(
+            await self.session.scalars(
+                select(CourseEnrollment.user_id).where(
+                    CourseEnrollment.course_id == exam.course_id,
+                    CourseEnrollment.status.in_(["active", "completed"]),
+                )
+            )
+        )
+        if student_ids:
+            notice = Notification(
+                title=f"考试发布：{exam.title}",
+                content=f"考试将于 {exam.starts_at.isoformat()} 开始，请合理安排时间。",
+                notification_type=NotificationType.EXAM,
+                source_key=f"exam_publish:{exam.id}",
+                created_by=self.current_user.id,
+            )
+            notice.recipients = [UserNotification(user_id=user_id) for user_id in student_ids]
+            self.session.add(notice)
         await self.session.commit()
         return await self._exam(exam.id)
 
@@ -204,6 +225,14 @@ class ExamService:
         attempt.submitted_at = now
         attempt.duration_seconds = max(0, int((now - aware(attempt.started_at)).total_seconds()))
         attempt.idempotency_key = payload.idempotency_key
+        grade_notice = Notification(
+            title=f"考试成绩已发布：{exam.title}",
+            content=f"本次考试得分 {float(total):g}/{float(attempt.total_score):g}。",
+            notification_type=NotificationType.GRADE,
+            source_key=f"exam_grade:{attempt.id}",
+        )
+        grade_notice.recipients = [UserNotification(user_id=self.current_user.id)]
+        self.session.add(grade_notice)
         await self.session.commit()
         refreshed = await self.repository.get_attempt(exam.id, self.current_user.id)
         assert refreshed is not None
