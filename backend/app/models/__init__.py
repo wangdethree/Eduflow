@@ -7,6 +7,18 @@ from app.models.course import (
     CourseStatus,
     LessonType,
 )
+from app.models.exam import (
+    AttemptStatus,
+    Exam,
+    ExamAnswer,
+    ExamAttempt,
+    Paper,
+    PaperQuestion,
+    Question,
+    QuestionOption,
+    QuestionType,
+    WrongQuestion,
+)
 from app.models.file import FilePurpose, FileStatus, StoredFile
 from app.models.learning import (
     CourseEnrollment,
@@ -43,4 +55,14 @@ __all__ = [
     "EnrollmentStatus",
     "LearningDailyStat",
     "LessonProgress",
+    "AttemptStatus",
+    "Exam",
+    "ExamAnswer",
+    "ExamAttempt",
+    "Paper",
+    "PaperQuestion",
+    "Question",
+    "QuestionOption",
+    "QuestionType",
+    "WrongQuestion",
 ]
