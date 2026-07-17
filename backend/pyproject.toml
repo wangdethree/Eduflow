@@ -36,6 +36,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-q --disable-warnings --maxfail=1"
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -49,4 +52,3 @@ python_version = "3.11"
 plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
 strict = true
-

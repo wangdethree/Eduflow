@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import Depends
@@ -8,6 +9,7 @@ from app.core.exceptions import AuthenticationException
 from app.core.security import decode_token
 from app.db.session import get_db
 from app.models.user import User, UserStatus
+from app.repositories.rbac import RbacRepository
 from app.repositories.user import UserRepository
 
 bearer = HTTPBearer(auto_error=False)
@@ -29,3 +31,20 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 DatabaseSession = Annotated[AsyncSession, Depends(get_db)]
 
+
+def require_permissions(*permission_codes: str) -> Callable:
+    """声明式接口权限依赖，传入的权限必须全部具备。"""
+
+    async def permission_checker(
+        current_user: CurrentUser, session: DatabaseSession
+    ) -> User:
+        from app.core.exceptions import PermissionDeniedException
+
+        allowed = await RbacRepository(session).user_has_permissions(
+            current_user.id, set(permission_codes)
+        )
+        if not allowed:
+            raise PermissionDeniedException("当前角色没有所需接口权限")
+        return current_user
+
+    return permission_checker

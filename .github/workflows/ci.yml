@@ -15,7 +15,7 @@ jobs:
           python-version: "3.11"
       - run: pip install -e '.[dev]'
       - run: ruff check .
-      - run: pytest --cov=app
+      - run: python -m pytest --cov=app
   frontend:
     runs-on: ubuntu-latest
     defaults:

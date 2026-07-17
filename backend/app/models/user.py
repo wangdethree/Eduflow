@@ -1,10 +1,14 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.rbac import Role
 
 ID_TYPE = BigInteger().with_variant(Integer, "sqlite")
 
@@ -30,6 +34,9 @@ class User(Base, TimestampMixin):
 
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
+    )
+    roles: Mapped[list["Role"]] = relationship(
+        secondary="user_roles", back_populates="users", lazy="selectin"
     )
 
 
