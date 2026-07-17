@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+    jwt_algorithm: str = "HS256"
+
 
 
 @lru_cache
@@ -32,4 +34,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-

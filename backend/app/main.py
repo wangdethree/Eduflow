@@ -1,7 +1,8 @@
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -59,8 +60,7 @@ async def validation_exception_handler(
         content={
             "code": 10001,
             "message": "请求参数校验失败",
-            "data": exc.errors(),
+            "data": jsonable_encoder(exc.errors()),
             "request_id": getattr(request.state, "request_id", ""),
         },
     )
-

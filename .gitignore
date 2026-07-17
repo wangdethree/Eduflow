@@ -5,6 +5,7 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 *.py[cod]
+*.egg-info/
 *.db
 .coverage
 htmlcov/
@@ -16,4 +17,3 @@ dist/
 minio_data/
 mysql_data/
 redis_data/
-
