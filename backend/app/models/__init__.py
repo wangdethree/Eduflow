@@ -8,6 +8,13 @@ from app.models.course import (
     LessonType,
 )
 from app.models.file import FilePurpose, FileStatus, StoredFile
+from app.models.learning import (
+    CourseEnrollment,
+    CourseFavorite,
+    EnrollmentStatus,
+    LearningDailyStat,
+    LessonProgress,
+)
 from app.models.rbac import OperationLog, Permission, Role, role_permissions, user_roles
 from app.models.user import LoginLog, RefreshToken, User, UserStatus
 
@@ -31,4 +38,9 @@ __all__ = [
     "FilePurpose",
     "FileStatus",
     "StoredFile",
+    "CourseEnrollment",
+    "CourseFavorite",
+    "EnrollmentStatus",
+    "LearningDailyStat",
+    "LessonProgress",
 ]
