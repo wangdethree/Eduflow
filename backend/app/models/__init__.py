@@ -11,4 +11,20 @@ __all__ = [
     "UserStatus",
     "role_permissions",
     "user_roles",
+    "Course",
+    "CourseAudit",
+    "CourseCategory",
+    "CourseChapter",
+    "CourseLesson",
+    "CourseStatus",
+    "LessonType",
 ]
+from app.models.course import (
+    Course,
+    CourseAudit,
+    CourseCategory,
+    CourseChapter,
+    CourseLesson,
+    CourseStatus,
+    LessonType,
+)
