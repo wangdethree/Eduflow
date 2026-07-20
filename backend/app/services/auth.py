@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+import structlog
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -8,6 +10,8 @@ from app.core.security import create_token, decode_token, hash_password, hash_to
 from app.models.user import LoginLog, RefreshToken, User, UserStatus
 from app.repositories.user import UserRepository
 from app.schemas.user import RegisterRequest, TokenResponse, UserResponse
+
+logger = structlog.get_logger()
 
 
 class AuthService:
@@ -55,9 +59,24 @@ class AuthService:
             await self.session.commit()
             raise AuthenticationException(reason)
         assert user is not None
-        user.last_login_at = datetime.now(UTC)
         response = self._issue_token_pair(user)
         await self.session.commit()
+
+        # 登录日志和刷新令牌均通过外键引用用户。先提交这些记录，再在独立事务中
+        # 更新最后登录时间，可避免同一账号并发登录时 MySQL 的外键锁升级死锁。
+        try:
+            await self.users.update_last_login(user.id, datetime.now(UTC))
+            await self.session.commit()
+        except OperationalError as exc:
+            if not self._is_mysql_lock_conflict(exc):
+                raise
+            # 最后登录时间是辅助信息，锁冲突不应使已成功签发的令牌返回 500。
+            await self.session.rollback()
+            await logger.awarning(
+                "last_login_update_skipped",
+                user_id=user.id,
+                database_error_code=self._database_error_code(exc),
+            )
         return response
 
     def _issue_token_pair(self, user: User) -> TokenResponse:
@@ -131,3 +150,12 @@ class AuthService:
             value = value.replace(tzinfo=UTC)
         return value <= now
 
+    @staticmethod
+    def _database_error_code(exc: OperationalError) -> int | None:
+        args = getattr(exc.orig, "args", ())
+        return args[0] if args and isinstance(args[0], int) else None
+
+    @classmethod
+    def _is_mysql_lock_conflict(cls, exc: OperationalError) -> bool:
+        # 1213 为死锁，1205 为锁等待超时，均可安全忽略本次辅助字段更新。
+        return cls._database_error_code(exc) in {1205, 1213}

@@ -33,6 +33,16 @@ class UserRepository:
     def add_refresh_token(self, token: RefreshToken) -> None:
         self.session.add(token)
 
+    async def update_last_login(self, user_id: int, logged_in_at: datetime) -> None:
+        """独立更新最后登录时间，避免与令牌外键写入形成锁升级死锁。"""
+
+        await self.session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(last_login_at=logged_in_at)
+            .execution_options(synchronize_session=False)
+        )
+
     async def get_refresh_token(self, jti: str) -> RefreshToken | None:
         return await self.session.scalar(select(RefreshToken).where(RefreshToken.jti == jti))
 
@@ -42,4 +52,3 @@ class UserRepository:
             .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
             .values(revoked_at=revoked_at)
         )
-
