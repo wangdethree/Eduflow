@@ -35,7 +35,10 @@ from app.schemas.exam import (
     ExamSubmitRequest,
     PaperCreate,
     PaperQuestionCreate,
+    PaperQuestionUpdate,
+    PaperUpdate,
     QuestionCreate,
+    QuestionUpdate,
 )
 
 RELEASE_LOCK_SCRIPT = """
@@ -74,11 +77,62 @@ class ExamService:
         await self.session.commit()
         return await self._question(question.id)
 
+    async def update_question(self, question_id: int, payload: QuestionUpdate) -> Question:
+        question = await self._owned_question(question_id)
+        question.stem = payload.stem
+        question.question_type = QuestionType(payload.question_type)
+        question.correct_answers = sorted(set(payload.correct_answers))
+        question.analysis = payload.analysis
+        question.difficulty = payload.difficulty
+        current_options = {item.option_key: item for item in question.options}
+        for option_key, option in current_options.items():
+            if option_key not in payload.options:
+                question.options.remove(option)
+        for option_key, content in sorted(payload.options.items()):
+            if option_key in current_options:
+                current_options[option_key].content = content
+            else:
+                question.options.append(
+                    QuestionOption(option_key=option_key, content=content)
+                )
+        await self.session.commit()
+        return await self._question(question.id)
+
+    async def delete_question(self, question_id: int) -> None:
+        question = await self._owned_question(question_id)
+        usage = await self.session.scalar(
+            select(PaperQuestion.id).where(PaperQuestion.question_id == question.id).limit(1)
+        )
+        if usage is not None:
+            raise ConflictException("题目已被试卷使用，请先从试卷移除", 60016)
+        await self.session.delete(question)
+        await self.session.commit()
+
     async def create_paper(self, payload: PaperCreate) -> Paper:
         paper = Paper(teacher_id=self.current_user.id, **payload.model_dump())
         self.session.add(paper)
         await self.session.commit()
         return await self._paper(paper.id)
+
+    async def get_owned_paper(self, paper_id: int) -> Paper:
+        return await self._owned_paper(paper_id)
+
+    async def update_paper(self, paper_id: int, payload: PaperUpdate) -> Paper:
+        paper = await self._owned_paper(paper_id)
+        for field, value in payload.model_dump(exclude_unset=True).items():
+            setattr(paper, field, value)
+        await self.session.commit()
+        return await self._paper(paper.id)
+
+    async def delete_paper(self, paper_id: int) -> None:
+        paper = await self._owned_paper(paper_id)
+        usage = await self.session.scalar(
+            select(Exam.id).where(Exam.paper_id == paper.id).limit(1)
+        )
+        if usage is not None:
+            raise ConflictException("试卷已用于考试，不能删除", 60017)
+        await self.session.delete(paper)
+        await self.session.commit()
 
     async def add_paper_question(
         self, paper_id: int, payload: PaperQuestionCreate
@@ -99,6 +153,38 @@ class ExamService:
             )
         )
         paper.total_score = Decimal(paper.total_score) + payload.score
+        await self.session.commit()
+        return await self._paper(paper.id)
+
+    async def update_paper_question(
+        self, paper_id: int, question_id: int, payload: PaperQuestionUpdate
+    ) -> Paper:
+        paper = await self._owned_paper(paper_id)
+        item = next(
+            (question for question in paper.questions if question.question_id == question_id),
+            None,
+        )
+        if item is None:
+            raise ResourceNotFoundException("试卷中不存在该题目", 60024)
+        item.score = payload.score
+        paper.total_score = sum(
+            (Decimal(question.score) for question in paper.questions), Decimal("0")
+        )
+        await self.session.commit()
+        return await self._paper(paper.id)
+
+    async def remove_paper_question(self, paper_id: int, question_id: int) -> Paper:
+        paper = await self._owned_paper(paper_id)
+        item = next(
+            (question for question in paper.questions if question.question_id == question_id),
+            None,
+        )
+        if item is None:
+            raise ResourceNotFoundException("试卷中不存在该题目", 60024)
+        paper.questions.remove(item)
+        paper.total_score = max(Decimal("0"), Decimal(paper.total_score) - Decimal(item.score))
+        for index, question in enumerate(paper.questions, start=1):
+            question.sort_order = index
         await self.session.commit()
         return await self._paper(paper.id)
 
@@ -254,10 +340,22 @@ class ExamService:
             raise ResourceNotFoundException("题目不存在", 60020)
         return item
 
+    async def _owned_question(self, question_id: int) -> Question:
+        item = await self._question(question_id)
+        if item.teacher_id != self.current_user.id:
+            raise PermissionDeniedException("无权管理其他教师的题目")
+        return item
+
     async def _paper(self, paper_id: int) -> Paper:
         item = await self.repository.get_paper(paper_id)
         if item is None:
             raise ResourceNotFoundException("试卷不存在", 60021)
+        return item
+
+    async def _owned_paper(self, paper_id: int) -> Paper:
+        item = await self._paper(paper_id)
+        if item.teacher_id != self.current_user.id:
+            raise PermissionDeniedException("无权管理其他教师的试卷")
         return item
 
     async def _exam(self, exam_id: int) -> Exam:

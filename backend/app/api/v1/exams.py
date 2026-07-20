@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from app.api.deps.auth import CurrentUser, DatabaseSession, require_permissions
 from app.core.exceptions import ResourceNotFoundException
 from app.core.response import success
-from app.models.exam import ExamAttempt
+from app.models.exam import ExamAttempt, Paper, Question
 from app.repositories.exam import ExamRepository
 from app.schemas.exam import (
     AttemptResponse,
@@ -13,12 +13,45 @@ from app.schemas.exam import (
     ExamSubmitRequest,
     PaperCreate,
     PaperQuestionCreate,
+    PaperQuestionUpdate,
+    PaperUpdate,
     QuestionCreate,
+    QuestionUpdate,
 )
 from app.services.exam import ExamService
 
 router = APIRouter(tags=["考试中心"])
 ExamCreator = Annotated[object, Depends(require_permissions("exam:create"))]
+
+
+def serialize_question(question: Question) -> dict:
+    return {
+        "id": question.id,
+        "stem": question.stem,
+        "question_type": question.question_type.value,
+        "options": {item.option_key: item.content for item in question.options},
+        "correct_answers": question.correct_answers,
+        "analysis": question.analysis,
+        "difficulty": question.difficulty,
+    }
+
+
+def serialize_paper(paper: Paper) -> dict:
+    return {
+        "id": paper.id,
+        "title": paper.title,
+        "description": paper.description,
+        "total_score": float(paper.total_score),
+        "questions": [
+            {
+                "question_id": item.question_id,
+                "score": float(item.score),
+                "sort_order": item.sort_order,
+                "question": serialize_question(item.question),
+            }
+            for item in paper.questions
+        ],
+    }
 
 
 def serialize_attempt(attempt: ExamAttempt) -> dict:
@@ -41,15 +74,35 @@ async def create_question(
     session: DatabaseSession,
 ) -> dict:
     question = await ExamService(session, current_user).create_question(payload)
-    return success(
-        {
-            "id": question.id,
-            "stem": question.stem,
-            "question_type": question.question_type.value,
-            "options": {item.option_key: item.content for item in question.options},
-            "correct_answers": question.correct_answers,
-        }
-    )
+    return success(serialize_question(question))
+
+
+@router.get("/questions", summary="教师题库列表")
+async def list_questions(
+    _: ExamCreator, current_user: CurrentUser, session: DatabaseSession
+) -> dict:
+    items = await ExamRepository(session).list_teacher_questions(current_user.id)
+    return success([serialize_question(item) for item in items])
+
+
+@router.put("/questions/{question_id}", summary="编辑题目")
+async def update_question(
+    question_id: int,
+    payload: QuestionUpdate,
+    _: ExamCreator,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> dict:
+    item = await ExamService(session, current_user).update_question(question_id, payload)
+    return success(serialize_question(item))
+
+
+@router.delete("/questions/{question_id}", summary="删除题目")
+async def delete_question(
+    question_id: int, _: ExamCreator, current_user: CurrentUser, session: DatabaseSession
+) -> dict:
+    await ExamService(session, current_user).delete_question(question_id)
+    return success(message="题目已删除")
 
 
 @router.post("/papers", status_code=201, summary="创建试卷")
@@ -60,7 +113,43 @@ async def create_paper(
     session: DatabaseSession,
 ) -> dict:
     paper = await ExamService(session, current_user).create_paper(payload)
-    return success({"id": paper.id, "title": paper.title, "total_score": float(paper.total_score)})
+    return success(serialize_paper(paper))
+
+
+@router.get("/papers", summary="教师试卷列表")
+async def list_papers(
+    _: ExamCreator, current_user: CurrentUser, session: DatabaseSession
+) -> dict:
+    items = await ExamRepository(session).list_teacher_papers(current_user.id)
+    return success([serialize_paper(item) for item in items])
+
+
+@router.get("/papers/{paper_id}", summary="教师试卷详情")
+async def get_paper(
+    paper_id: int, _: ExamCreator, current_user: CurrentUser, session: DatabaseSession
+) -> dict:
+    paper = await ExamService(session, current_user).get_owned_paper(paper_id)
+    return success(serialize_paper(paper))
+
+
+@router.patch("/papers/{paper_id}", summary="编辑试卷")
+async def update_paper(
+    paper_id: int,
+    payload: PaperUpdate,
+    _: ExamCreator,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> dict:
+    paper = await ExamService(session, current_user).update_paper(paper_id, payload)
+    return success(serialize_paper(paper))
+
+
+@router.delete("/papers/{paper_id}", summary="删除试卷")
+async def delete_paper(
+    paper_id: int, _: ExamCreator, current_user: CurrentUser, session: DatabaseSession
+) -> dict:
+    await ExamService(session, current_user).delete_paper(paper_id)
+    return success(message="试卷已删除")
 
 
 @router.post("/papers/{paper_id}/questions", summary="向试卷添加题目")
@@ -79,6 +168,35 @@ async def add_paper_question(
             "question_count": len(paper.questions),
         }
     )
+
+
+@router.patch("/papers/{paper_id}/questions/{question_id}", summary="修改试卷题目分值")
+async def update_paper_question(
+    paper_id: int,
+    question_id: int,
+    payload: PaperQuestionUpdate,
+    _: ExamCreator,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> dict:
+    paper = await ExamService(session, current_user).update_paper_question(
+        paper_id, question_id, payload
+    )
+    return success(serialize_paper(paper))
+
+
+@router.delete("/papers/{paper_id}/questions/{question_id}", summary="从试卷移除题目")
+async def remove_paper_question(
+    paper_id: int,
+    question_id: int,
+    _: ExamCreator,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> dict:
+    paper = await ExamService(session, current_user).remove_paper_question(
+        paper_id, question_id
+    )
+    return success(serialize_paper(paper), "题目已从试卷移除")
 
 
 @router.post("/exams", status_code=201, summary="发布考试")
@@ -165,4 +283,3 @@ async def list_wrong_questions(current_user: CurrentUser, session: DatabaseSessi
             for item in items
         ]
     )
-

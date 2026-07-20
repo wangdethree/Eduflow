@@ -26,13 +26,26 @@ class QuestionCreate(BaseModel):
         return self
 
 
+class QuestionUpdate(QuestionCreate):
+    """题目编辑采用完整替换，确保题型、选项和答案始终一起校验。"""
+
+
 class PaperCreate(BaseModel):
     title: str = Field(min_length=2, max_length=150)
     description: str = Field(default="", max_length=500)
 
 
+class PaperUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=150)
+    description: str | None = Field(default=None, max_length=500)
+
+
 class PaperQuestionCreate(BaseModel):
     question_id: int
+    score: Decimal = Field(gt=0, le=100)
+
+
+class PaperQuestionUpdate(BaseModel):
     score: Decimal = Field(gt=0, le=100)
 
 
@@ -76,4 +89,3 @@ class AttemptResponse(BaseModel):
     total_score: float
     started_at: datetime
     submitted_at: datetime | None
-

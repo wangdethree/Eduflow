@@ -16,12 +16,38 @@ class ExamRepository:
             .options(selectinload(Question.options))
         )
 
+    async def list_teacher_questions(self, teacher_id: int) -> list[Question]:
+        result = await self.session.scalars(
+            select(Question)
+            .where(Question.teacher_id == teacher_id)
+            .order_by(Question.updated_at.desc(), Question.id.desc())
+            .options(selectinload(Question.options))
+        )
+        return list(result.unique())
+
     async def get_paper(self, paper_id: int) -> Paper | None:
         return await self.session.scalar(
             select(Paper)
             .where(Paper.id == paper_id)
-            .options(selectinload(Paper.questions).joinedload(PaperQuestion.question))
+            .options(
+                selectinload(Paper.questions)
+                .joinedload(PaperQuestion.question)
+                .selectinload(Question.options)
+            )
         )
+
+    async def list_teacher_papers(self, teacher_id: int) -> list[Paper]:
+        result = await self.session.scalars(
+            select(Paper)
+            .where(Paper.teacher_id == teacher_id)
+            .order_by(Paper.updated_at.desc(), Paper.id.desc())
+            .options(
+                selectinload(Paper.questions)
+                .joinedload(PaperQuestion.question)
+                .selectinload(Question.options)
+            )
+        )
+        return list(result.unique())
 
     async def get_exam(self, exam_id: int) -> Exam | None:
         return await self.session.scalar(
@@ -57,4 +83,3 @@ class ExamRepository:
                 .order_by(WrongQuestion.last_wrong_at.desc())
             )
         )
-

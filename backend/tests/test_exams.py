@@ -167,3 +167,71 @@ async def test_exam_auto_grading_idempotency_and_wrong_book(client, monkeypatch)
     async with AsyncSessionLocal() as session:
         assert await session.scalar(select(func.count(ExamAnswer.id))) == 2
         assert await session.scalar(select(func.count(WrongQuestion.id))) == 1
+
+
+async def test_teacher_question_bank_and_paper_management(client):
+    await create_exam_scene()
+    headers = await login(client, "exam_teacher", "Teacher123")
+    created = await client.post(
+        "/api/v1/questions",
+        headers=headers,
+        json={
+            "stem": "FastAPI 默认使用哪种数据校验库？",
+            "question_type": "single",
+            "options": {"A": "Pydantic", "B": "Marshmallow"},
+            "correct_answers": ["A"],
+            "difficulty": "easy",
+        },
+    )
+    question_id = created.json()["data"]["id"]
+    questions = await client.get("/api/v1/questions", headers=headers)
+    assert questions.json()["data"][0]["id"] == question_id
+
+    updated = await client.put(
+        f"/api/v1/questions/{question_id}",
+        headers=headers,
+        json={
+            "stem": "FastAPI 主要使用哪种数据校验库？",
+            "question_type": "single",
+            "options": {"A": "Pydantic", "B": "Jinja2"},
+            "correct_answers": ["A"],
+            "analysis": "请求模型由 Pydantic 校验。",
+            "difficulty": "medium",
+        },
+    )
+    assert updated.json()["data"]["difficulty"] == "medium"
+
+    paper = await client.post(
+        "/api/v1/papers",
+        headers=headers,
+        json={"title": "FastAPI 入门试卷", "description": "教师题库管理测试"},
+    )
+    paper_id = paper.json()["data"]["id"]
+    await client.post(
+        f"/api/v1/papers/{paper_id}/questions",
+        headers=headers,
+        json={"question_id": question_id, "score": 10},
+    )
+    papers = await client.get("/api/v1/papers", headers=headers)
+    assert papers.json()["data"][0]["questions"][0]["question"]["id"] == question_id
+    detail = await client.get(f"/api/v1/papers/{paper_id}", headers=headers)
+    assert detail.json()["data"]["total_score"] == 10
+
+    rescored = await client.patch(
+        f"/api/v1/papers/{paper_id}/questions/{question_id}",
+        headers=headers,
+        json={"score": 15},
+    )
+    assert rescored.json()["data"]["total_score"] == 15
+    in_use = await client.delete(f"/api/v1/questions/{question_id}", headers=headers)
+    assert in_use.status_code == 409
+
+    removed = await client.delete(
+        f"/api/v1/papers/{paper_id}/questions/{question_id}", headers=headers
+    )
+    assert removed.json()["data"]["total_score"] == 0
+    deleted_question = await client.delete(
+        f"/api/v1/questions/{question_id}", headers=headers
+    )
+    assert deleted_question.status_code == 200
+    assert (await client.delete(f"/api/v1/papers/{paper_id}", headers=headers)).status_code == 200
