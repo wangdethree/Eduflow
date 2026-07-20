@@ -40,7 +40,7 @@ class EduFlowUser(HttpUser):
 
     @task(2)
     def health_check(self) -> None:
-        self.client.get("/health", name="GET /health")
+        self.client.get("/api/v1/health", name="GET /health")
 
     @task(3)
     def read_learning_data(self) -> None:
