@@ -55,3 +55,14 @@ class ManagedUserResponse(BaseModel):
     roles: list[RoleResponse] = []
     created_at: datetime
 
+
+class OperationLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    action: str
+    resource_type: str
+    resource_id: str
+    detail: str
+    created_at: datetime

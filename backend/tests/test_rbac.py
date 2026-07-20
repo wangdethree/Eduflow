@@ -78,6 +78,16 @@ async def test_role_permission_and_user_assignment_flow(client):
     )
     assert user_result.json()["data"]["roles"][0]["code"] == "teacher"
 
+    logs = await client.get(
+        "/api/v1/operation-logs", headers=headers, params={"action": "assign"}
+    )
+    assert logs.status_code == 200
+    assert logs.json()["data"]["total"] == 2
+    assert {item["action"] for item in logs.json()["data"]["items"]} == {
+        "role:assign_permissions",
+        "user:assign_roles",
+    }
+
     async with AsyncSessionLocal() as session:
         user = await session.scalar(select(User).where(User.id == user_id))
         assert user is not None and user.token_version == 2

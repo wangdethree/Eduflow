@@ -1,8 +1,8 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.rbac import Permission, Role, role_permissions, user_roles
+from app.models.rbac import OperationLog, Permission, Role, role_permissions, user_roles
 from app.models.user import User
 
 
@@ -55,3 +55,29 @@ class RbacRepository:
         )
         return list(result.unique())
 
+    async def list_operation_logs(
+        self,
+        page: int,
+        page_size: int,
+        user_id: int | None,
+        action: str | None,
+        resource_type: str | None,
+    ) -> tuple[list[OperationLog], int]:
+        filters = []
+        if user_id is not None:
+            filters.append(OperationLog.user_id == user_id)
+        if action:
+            filters.append(OperationLog.action.contains(action))
+        if resource_type:
+            filters.append(OperationLog.resource_type == resource_type)
+        total = await self.session.scalar(
+            select(func.count(OperationLog.id)).where(*filters)
+        ) or 0
+        items = await self.session.scalars(
+            select(OperationLog)
+            .where(*filters)
+            .order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(items), total

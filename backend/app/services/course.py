@@ -16,6 +16,7 @@ from app.models.course import (
     CourseLesson,
     CourseStatus,
 )
+from app.models.rbac import OperationLog
 from app.models.user import User
 from app.repositories.course import CourseRepository
 from app.schemas.course import (
@@ -194,6 +195,16 @@ class CourseService:
                 auditor_id=self.current_user.id,
                 approved=approved,
                 opinion=opinion,
+                created_at=datetime.now(UTC),
+            )
+        )
+        self.session.add(
+            OperationLog(
+                user_id=self.current_user.id,
+                action="course:audit",
+                resource_type="course",
+                resource_id=str(course.id),
+                detail=f"approved={approved}; opinion={opinion}",
                 created_at=datetime.now(UTC),
             )
         )

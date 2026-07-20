@@ -1,6 +1,7 @@
+from math import ceil
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.api.deps.auth import CurrentUser, DatabaseSession, require_permissions
 from app.core.response import success
@@ -8,6 +9,7 @@ from app.repositories.rbac import RbacRepository
 from app.schemas.rbac import (
     IdListRequest,
     ManagedUserResponse,
+    OperationLogResponse,
     PermissionCreate,
     PermissionResponse,
     RoleCreate,
@@ -105,3 +107,29 @@ async def change_user_status(
     user = await RbacService(session, current_user).change_user_status(user_id, payload.status)
     return success({"id": user.id, "status": user.status.value})
 
+
+@router.get("/operation-logs", summary="管理操作审计日志")
+async def list_operation_logs(
+    _: UserManager,
+    session: DatabaseSession,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    user_id: int | None = None,
+    action: str | None = Query(default=None, max_length=100),
+    resource_type: str | None = Query(default=None, max_length=80),
+) -> dict:
+    items, total = await RbacRepository(session).list_operation_logs(
+        page, page_size, user_id, action, resource_type
+    )
+    return success(
+        {
+            "items": [
+                OperationLogResponse.model_validate(item).model_dump(mode="json")
+                for item in items
+            ],
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "pages": ceil(total / page_size) if total else 0,
+        }
+    )
