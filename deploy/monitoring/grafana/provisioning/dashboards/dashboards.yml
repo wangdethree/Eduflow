@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: EduFlow
+    orgId: 1
+    folder: EduFlow
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /var/lib/grafana/dashboards

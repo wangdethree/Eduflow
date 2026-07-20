@@ -41,6 +41,30 @@ curl http://localhost/api/v1/health
 
 若演示环境需要 MinIO 控制台，可为 `minio` 添加 `9000:9000` 和 `9001:9001` 端口映射；生产环境优先通过受控内网或独立域名访问。
 
+## 可观测性与告警
+
+项目提供独立的 Compose 叠加层，不会增加普通开发启动的常驻服务。先在 `.env` 中设置强密码 `GRAFANA_ADMIN_PASSWORD`，再启动完整监控栈：
+
+```bash
+docker compose -f docker-compose.yml -f deploy/docker-compose.observability.yml config -q
+docker compose -f docker-compose.yml -f deploy/docker-compose.observability.yml up -d --build
+```
+
+- Grafana：`http://127.0.0.1:3000`，预置“EduFlow 运行概览”仪表盘和 Prometheus、Tempo 数据源。
+- Prometheus：`http://127.0.0.1:9090`，每 15 秒抓取后端 `/metrics`。
+- Tempo：`http://127.0.0.1:3200`，接收 FastAPI、SQLAlchemy、Redis 和 Celery 的 OTLP HTTP 链路。
+- Sentry：在 `.env` 配置 `SENTRY_DSN` 后启用；未配置时不会发起外部请求。
+
+预置告警包含后端不可用、依赖不可用、5xx 错误率、P95 延迟、Celery 默认队列积压和 MySQL 慢查询增长。Prometheus 页面可以直接查看告警状态；生产环境应在 Prometheus 或 Grafana 中继续配置邮件、飞书、钉钉等真实通知渠道。
+
+MySQL 默认启用慢查询日志，阈值由 `MYSQL_LONG_QUERY_TIME` 控制；应用同时记录超过 `SLOW_QUERY_THRESHOLD_SECONDS` 的结构化日志，但不会写入 SQL 参数。常用排查命令：
+
+```bash
+docker compose exec mysql mysql -uroot -p -e "SELECT start_time,query_time,sql_text FROM mysql.slow_log ORDER BY start_time DESC LIMIT 20"
+docker compose exec redis redis-cli -n 1 LLEN celery
+docker compose exec backend python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/metrics').read().decode()[:1000])"
+```
+
 ## 更新发布
 
 ```bash
@@ -76,7 +100,7 @@ docker compose exec mysql mysqladmin ping -uroot -p
 - 仅暴露 80/443；MySQL、Redis、MinIO 使用内部网络和强凭据。
 - `APP_ENV=production`、`DEBUG=false`，CORS 改为真实前端域名。
 - 使用独立非 root 运行用户和只读文件系统，设置容器 CPU/内存限制。
-- 接入集中日志、错误告警、数据库慢查询、队列积压和磁盘容量监控。
+- 将结构化日志接入长期存储，并补充磁盘容量、证书过期和通知渠道巡检。
 - 执行镜像漏洞扫描、依赖审计、迁移演练、备份恢复演练和压力测试。
 
 ## 回滚

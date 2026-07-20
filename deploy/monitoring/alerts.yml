@@ -1,0 +1,66 @@
+groups:
+  - name: eduflow-availability
+    rules:
+      - alert: EduFlowBackendDown
+        expr: up{job="eduflow-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: EduFlow 后端无法抓取指标
+          description: Prometheus 已连续 2 分钟无法访问后端指标端点。
+
+      - alert: EduFlowDependencyDown
+        expr: eduflow_dependency_up == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: EduFlow 外部依赖不可用
+          description: "依赖 {{ $labels.dependency }} 已连续 3 分钟不可用。"
+
+      - alert: EduFlowHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="eduflow-backend",status=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_requests_total{job="eduflow-backend"}[5m])), 0.001)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: EduFlow HTTP 5xx 错误率过高
+          description: 最近 5 分钟的后端 5xx 错误率持续高于 5%。
+
+      - alert: EduFlowHighP95Latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_highr_seconds_bucket{job="eduflow-backend"}[5m])) by (le)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: EduFlow P95 响应时间过高
+          description: 最近 5 分钟的全局 P95 响应时间持续超过 1 秒。
+
+  - name: eduflow-capacity
+    rules:
+      - alert: EduFlowCeleryQueueBacklog
+        expr: eduflow_celery_queue_messages > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Celery 队列持续积压
+          description: 默认队列待处理任务已连续 10 分钟超过 100 个。
+
+      - alert: EduFlowMySQLSlowQueriesIncreasing
+        expr: increase(eduflow_mysql_slow_queries[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: MySQL 慢查询增长过快
+          description: 最近 5 分钟新增慢查询超过 5 条，请检查慢 SQL 日志与执行计划。

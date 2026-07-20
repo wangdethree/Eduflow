@@ -1,6 +1,11 @@
 services:
   mysql:
     image: mysql:8.4
+    command:
+      - mysqld
+      - --slow-query-log=ON
+      - --long-query-time=${MYSQL_LONG_QUERY_TIME:-1}
+      - --log-output=TABLE
     environment:
       MYSQL_DATABASE: eduflow
       MYSQL_USER: eduflow
