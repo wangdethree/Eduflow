@@ -1,4 +1,8 @@
+from sqlalchemy import select
+
 from app.core.security import decode_token
+from app.db.session import AsyncSessionLocal
+from app.models.rbac import OperationLog
 
 USER = {
     "username": "student01",
@@ -48,9 +52,22 @@ async def test_refresh_token_rotation_and_logout(client):
     assert refreshed.status_code == 200
     new_refresh = refreshed.json()["data"]["refresh_token"]
     reused = await client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+        "/api/v1/auth/refresh",
+        json={"refresh_token": tokens["refresh_token"]},
+        headers={"User-Agent": "replay-test"},
     )
     assert reused.status_code == 401
+    invalidated_access = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {refreshed.json()['data']['access_token']}"},
+    )
+    assert invalidated_access.status_code == 401
+    async with AsyncSessionLocal() as session:
+        audit_log = await session.scalar(
+            select(OperationLog).where(OperationLog.action == "security:refresh_replay")
+        )
+        assert audit_log is not None
+        assert "replay-test" in audit_log.detail
     logout = await client.post("/api/v1/auth/logout", json={"refresh_token": new_refresh})
     assert logout.status_code == 200
     after_logout = await client.post(

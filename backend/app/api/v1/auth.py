@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request
 
 from app.api.deps.auth import CurrentUser, DatabaseSession
+from app.core.rate_limit import enforce_login_rate_limit, reset_login_rate_limit
 from app.core.response import success
 from app.schemas.user import (
     LoginRequest,
@@ -25,18 +26,27 @@ async def register(payload: RegisterRequest, session: DatabaseSession) -> dict:
 
 @router.post("/login", response_model=None, summary="用户登录")
 async def login(payload: LoginRequest, request: Request, session: DatabaseSession) -> dict:
+    ip_address = request.client.host if request.client else ""
+    await enforce_login_rate_limit(payload.account, ip_address)
     tokens: TokenResponse = await AuthService(session).login(
         payload.account,
         payload.password,
-        ip_address=request.client.host if request.client else "",
+        ip_address=ip_address,
         user_agent=request.headers.get("User-Agent", ""),
     )
+    await reset_login_rate_limit(payload.account, ip_address)
     return success(tokens.model_dump(mode="json"), "登录成功")
 
 
 @router.post("/refresh", summary="刷新 Token")
-async def refresh_token(payload: RefreshRequest, session: DatabaseSession) -> dict:
-    tokens = await AuthService(session).refresh(payload.refresh_token)
+async def refresh_token(
+    payload: RefreshRequest, request: Request, session: DatabaseSession
+) -> dict:
+    tokens = await AuthService(session).refresh(
+        payload.refresh_token,
+        ip_address=request.client.host if request.client else "",
+        user_agent=request.headers.get("User-Agent", ""),
+    )
     return success(tokens.model_dump(mode="json"))
 
 
@@ -70,4 +80,3 @@ async def change_password(
         current_user, payload.old_password, payload.new_password
     )
     return success(message="密码已修改，请重新登录")
-

@@ -50,8 +50,12 @@ setup_observability(app)
 
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+    headers = None
+    if exc.status_code == 429 and isinstance(exc.data, dict):
+        headers = {"Retry-After": str(exc.data.get("retry_after", 1))}
     return JSONResponse(
         status_code=exc.status_code,
+        headers=headers,
         content={
             "code": exc.code,
             "message": exc.message,

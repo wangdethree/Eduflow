@@ -1,6 +1,7 @@
 import os
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_eduflow.db"
+os.environ["LOGIN_RATE_LIMIT_ENABLED"] = "false"
 
 import pytest
 from httpx import ASGITransport, AsyncClient

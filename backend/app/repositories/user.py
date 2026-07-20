@@ -43,8 +43,11 @@ class UserRepository:
             .execution_options(synchronize_session=False)
         )
 
-    async def get_refresh_token(self, jti: str) -> RefreshToken | None:
-        return await self.session.scalar(select(RefreshToken).where(RefreshToken.jti == jti))
+    async def get_refresh_token(self, jti: str, *, for_update: bool = False) -> RefreshToken | None:
+        statement = select(RefreshToken).where(RefreshToken.jti == jti)
+        if for_update:
+            statement = statement.with_for_update()
+        return await self.session.scalar(statement)
 
     async def revoke_all_tokens(self, user_id: int, revoked_at: datetime) -> None:
         await self.session.execute(

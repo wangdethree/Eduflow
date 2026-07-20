@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     otel_exporter_otlp_traces_endpoint: str | None = None
     otel_service_name: str = "eduflow-backend"
     app_release: str | None = None
+    login_rate_limit_enabled: bool = True
+    login_rate_limit_attempts: int = Field(default=5, ge=1)
+    login_rate_limit_window_seconds: int = Field(default=300, ge=10)
 
 @lru_cache
 def get_settings() -> Settings:

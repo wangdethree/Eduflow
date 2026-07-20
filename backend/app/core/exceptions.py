@@ -35,3 +35,13 @@ class ConflictException(AppException):
 class ServiceUnavailableException(AppException):
     def __init__(self, message: str, code: int = 90001) -> None:
         super().__init__(code, message, 503)
+
+
+class RateLimitException(AppException):
+    def __init__(self, retry_after: int) -> None:
+        super().__init__(
+            20005,
+            "登录尝试过于频繁，请稍后重试",
+            429,
+            {"retry_after": max(1, retry_after)},
+        )

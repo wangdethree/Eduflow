@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import structlog
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import AuthenticationException, ConflictException
 from app.core.security import create_token, decode_token, hash_password, hash_token, verify_password
+from app.models.rbac import OperationLog
 from app.models.user import LoginLog, RefreshToken, User, UserStatus
 from app.repositories.user import UserRepository
 from app.schemas.user import RegisterRequest, TokenResponse, UserResponse
@@ -107,14 +109,19 @@ class AuthService:
             user=UserResponse.model_validate(user),
         )
 
-    async def refresh(self, raw_token: str) -> TokenResponse:
+    async def refresh(
+        self, raw_token: str, *, ip_address: str = "", user_agent: str = ""
+    ) -> TokenResponse:
         payload = decode_token(raw_token, "refresh")
-        stored = await self.users.get_refresh_token(payload["jti"])
+        stored = await self.users.get_refresh_token(payload["jti"], for_update=True)
         now = datetime.now(UTC)
+        if stored is not None and (
+            stored.revoked_at is not None or hash_token(raw_token) != stored.token_hash
+        ):
+            await self._handle_refresh_token_replay(stored, now, ip_address, user_agent)
+            raise AuthenticationException("Refresh Token 已失效")
         if (
             stored is None
-            or stored.revoked_at is not None
-            or hash_token(raw_token) != stored.token_hash
             or self._is_expired(stored.expires_at, now)
         ):
             raise AuthenticationException("Refresh Token 已失效")
@@ -125,6 +132,44 @@ class AuthService:
         response = self._issue_token_pair(user)
         await self.session.commit()
         return response
+
+    async def _handle_refresh_token_replay(
+        self,
+        stored: RefreshToken,
+        detected_at: datetime,
+        ip_address: str,
+        user_agent: str,
+    ) -> None:
+        """重放意味着令牌可能泄漏，立即终止该用户所有现有会话。"""
+
+        user = await self.users.get_by_id(stored.user_id)
+        if user is not None:
+            user.token_version += 1
+        await self.users.revoke_all_tokens(stored.user_id, detected_at)
+        self.session.add(
+            OperationLog(
+                user_id=stored.user_id,
+                action="security:refresh_replay",
+                resource_type="user_session",
+                resource_id=str(stored.user_id),
+                detail=json.dumps(
+                    {
+                        "ip_address": ip_address,
+                        "user_agent": user_agent[:500],
+                        "token_jti": stored.jti,
+                    },
+                    ensure_ascii=False,
+                ),
+                created_at=detected_at,
+            )
+        )
+        await self.session.commit()
+        await logger.acritical(
+            "refresh_token_replay_detected",
+            user_id=stored.user_id,
+            token_jti=stored.jti,
+            ip_address=ip_address,
+        )
 
     async def logout(self, raw_token: str) -> None:
         payload = decode_token(raw_token, "refresh")
