@@ -77,6 +77,38 @@ export interface Paper {
   total_score: number;
   questions: PaperQuestion[];
 }
+export interface Permission {
+  id: number;
+  name: string;
+  code: string;
+  description: string;
+}
+export interface Role {
+  id: number;
+  name: string;
+  code: string;
+  description: string;
+  is_system: boolean;
+  permissions: Permission[];
+}
+export interface ManagedUser {
+  id: number;
+  username: string;
+  email: string;
+  nickname: string;
+  status: string;
+  roles: Role[];
+  created_at: string;
+}
+export interface OperationLog {
+  id: number;
+  user_id: number;
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  detail: string;
+  created_at: string;
+}
 export interface PageData<T> {
   items: T[];
   page: number;
