@@ -26,8 +26,14 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
     jwt_algorithm: str = "HS256"
-
-
+    metrics_enabled: bool = True
+    observability_probe_interval_seconds: int = Field(default=15, ge=5)
+    slow_query_threshold_seconds: float = Field(default=1.0, ge=0)
+    sentry_dsn: str | None = None
+    sentry_traces_sample_rate: float = Field(default=0.1, ge=0, le=1)
+    otel_exporter_otlp_traces_endpoint: str | None = None
+    otel_service_name: str = "eduflow-backend"
+    app_release: str | None = None
 
 @lru_cache
 def get_settings() -> Settings:

@@ -1,6 +1,7 @@
 from celery import Celery
 
 from app.core.config import settings
+from app.core.observability import configure_worker_observability
 
 celery_app = Celery(
     "eduflow",
@@ -25,3 +26,6 @@ celery_app.conf.update(
         },
     },
 )
+
+# Worker 进程不经过 FastAPI 启动流程，需要单独启用错误与链路采集。
+configure_worker_observability()

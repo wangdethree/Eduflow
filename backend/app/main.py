@@ -11,6 +11,11 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.logging import configure_logging
+from app.core.observability import (
+    setup_observability,
+    start_dependency_probes,
+    stop_dependency_probes,
+)
 from app.middlewares.request_context import RequestContextMiddleware
 
 configure_logging()
@@ -18,7 +23,11 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    yield
+    probe_task = start_dependency_probes()
+    try:
+        yield
+    finally:
+        await stop_dependency_probes(probe_task)
 
 
 app = FastAPI(
@@ -36,6 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_router, prefix="/api/v1")
+setup_observability(app)
 
 
 @app.exception_handler(AppException)
