@@ -16,6 +16,8 @@ htmlcov/
 reports/runtime/
 node_modules/
 dist/
+playwright-report/
+test-results/
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts

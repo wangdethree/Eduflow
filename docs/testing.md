@@ -30,17 +30,18 @@ cd backend
 cd frontend
 npm run lint
 npm run build
+npm run test:e2e
 npm audit --omit=dev
 ```
 
-当前 ESLint、TypeScript/Vite 生产构建已通过，官方 npm registry 审计结果为 `0 vulnerabilities`。构建仍提示 Element Plus 主分包较大，属于后续按需导入优化项。
+Playwright E2E 使用确定性的 API 路由模拟覆盖受保护路由登录回跳、教师题库创建、管理员课程审核与角色分配。首次运行可执行 `npm run test:e2e:install` 安装官方 Chromium；本地存在 Google Chrome 时配置会直接复用，GitHub Actions 则安装 Playwright 固定版本 Chromium。当前 ESLint、TypeScript/Vite 生产构建已通过，官方 npm registry 审计结果为 `0 vulnerabilities`。构建仍提示 Element Plus 主分包较大，属于后续按需导入优化项。
 
 ## CI
 
 GitHub Actions 在 push 与 pull request 时执行：
 
 1. Python 3.11 安装开发依赖、Ruff、pytest + coverage。
-2. Node 22 使用 `npm ci` 复现锁文件依赖、ESLint 和生产构建。
+2. Node 22 使用 `npm ci` 复现锁文件依赖、ESLint、生产构建和 Chromium Playwright E2E。
 
 ## Locust 场景
 
