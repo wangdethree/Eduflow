@@ -44,7 +44,7 @@ GitHub Actions 在 push 与 pull request 时执行：
 
 ## Locust 场景
 
-`backend/locustfile.py` 包含公开课程浏览、健康检查、我的课程和通知读取。未提供账号时只压公开接口；提供账号后加入受保护读取接口。
+`backend/locustfile.py` 包含公开课程浏览、健康检查、我的课程和通知读取。未提供账号时只压公开接口；提供单账号或账号池后加入受保护读取接口。固定基准使用 50 个独立账号，避免所有虚拟用户争抢同一用户记录而扭曲正常读取场景；真实 MySQL 集成测试另行保留 20 路同账号并发登录死锁回归。
 
 ```bash
 cd backend
@@ -53,6 +53,8 @@ export LOCUST_ACCOUNT=student_account
 export LOCUST_PASSWORD='student_password'
 .venv/bin/locust -f locustfile.py
 ```
+
+账号池模式使用 `LOCUST_ACCOUNT_PREFIX`、`LOCUST_ACCOUNT_COUNT` 和统一测试密码，账号可先由 `scripts/prepare_benchmark_users.py` 幂等准备。
 
 访问 <http://localhost:8089> 配置用户数和爬升速率。无界面短跑示例：
 
@@ -74,6 +76,17 @@ export LOCUST_PASSWORD='student_password'
 | 考试集中提交 | 锁冲突、幂等、DB 事务耗时 | 不重复评分，业务错误可解释 |
 
 这些数值是验收目标，不是已测结果。真实报告必须记录：代码提交、机器规格、数据规模、容器资源限制、并发模型、P50/P95/P99、RPS、错误率、数据库/Redis/队列指标及瓶颈结论。
+
+## 真实依赖集成与固定基准
+
+仓库提供独立的 `deploy/docker-compose.integration.yml`，使用 MySQL 8.0、Redis 7.4 和 MinIO，并为各容器设置固定资源上限。该环境使用独立数据库和宿主机端口，不与开发数据混用；生产 Compose 仍使用 MySQL 8.4，后续需在发布候选环境补跑一次 8.4 兼容性回归。
+
+```bash
+cp .env.integration.example .env.integration
+backend/scripts/run_integration_benchmark.sh
+```
+
+脚本依次执行：启动真实依赖与应用、初始化权限数据、运行 `integration_tests` 的 MySQL/Redis/MinIO 和课程审核链路、再以 50 个并发用户、每秒 5 个用户爬升、持续 2 分钟执行 Locust。原始 CSV/HTML 写入忽略提交的 `reports/runtime/`；确认环境和数据有效后，再将摘要整理为带日期的 `docs/performance-report-*.md` 提交。
 
 ## 上线前人工检查
 

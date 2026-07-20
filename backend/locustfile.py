@@ -1,6 +1,9 @@
 import os
+from itertools import count
 
 from locust import HttpUser, between, task
+
+_account_sequence = count()
 
 
 class EduFlowUser(HttpUser):
@@ -11,7 +14,7 @@ class EduFlowUser(HttpUser):
 
     def on_start(self) -> None:
         self.token: str | None = None
-        account = os.getenv("LOCUST_ACCOUNT")
+        account = self._resolve_account()
         password = os.getenv("LOCUST_PASSWORD")
         if not account or not password:
             return
@@ -29,6 +32,16 @@ class EduFlowUser(HttpUser):
                 response.failure(f"登录失败：{payload.get('message')}")
                 return
             self.token = payload["data"]["access_token"]
+
+    @staticmethod
+    def _resolve_account() -> str | None:
+        """优先为每个虚拟用户分配独立账号，也保留单账号调试方式。"""
+
+        prefix = os.getenv("LOCUST_ACCOUNT_PREFIX")
+        if not prefix:
+            return os.getenv("LOCUST_ACCOUNT")
+        account_count = max(int(os.getenv("LOCUST_ACCOUNT_COUNT", "50")), 1)
+        return f"{prefix}{next(_account_sequence) % account_count + 1}"
 
     @property
     def auth_headers(self) -> dict[str, str]:

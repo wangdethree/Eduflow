@@ -1,0 +1,78 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: eduflow_integration
+    ports:
+      - "127.0.0.1:3307:3306"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+
+  redis:
+    ports:
+      - "127.0.0.1:6381:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  minio:
+    ports:
+      - "127.0.0.1:9002:9000"
+      - "127.0.0.1:9003:9001"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  backend:
+    env_file:
+      - .env.integration
+    ports:
+      - "127.0.0.1:8003:8000"
+    environment:
+      APP_ENV: integration
+      DEBUG: "false"
+      DATABASE_URL: mysql+asyncmy://eduflow:${MYSQL_PASSWORD}@mysql:3306/eduflow_integration
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+
+  celery-worker:
+    env_file:
+      - .env.integration
+    environment:
+      APP_ENV: integration
+      DEBUG: "false"
+      DATABASE_URL: mysql+asyncmy://eduflow:${MYSQL_PASSWORD}@mysql:3306/eduflow_integration
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  celery-beat:
+    env_file:
+      - .env.integration
+    environment:
+      APP_ENV: integration
+      DEBUG: "false"
+      DATABASE_URL: mysql+asyncmy://eduflow:${MYSQL_PASSWORD}@mysql:3306/eduflow_integration
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  frontend:
+    profiles: ["full-ui"]
+
+  nginx:
+    profiles: ["full-ui"]
