@@ -11,6 +11,9 @@ __pycache__/
 htmlcov/
 node_modules/
 dist/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 .idea/
 .vscode/
 .DS_Store

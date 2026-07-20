@@ -1,0 +1,5 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'; import request from '@/utils/request'; import type { ApiResponse, MessageItem } from '@/types'
+const items=ref<MessageItem[]>([]); async function load(){items.value=(await request.get<ApiResponse<MessageItem[]>>('/notifications')).data.data} async function read(item:MessageItem){if(!item.is_read){await request.post(`/notifications/${item.id}/read`);item.is_read=true}} async function readAll(){await request.post('/notifications/read-all');items.value.forEach(i=>i.is_read=true)} onMounted(load)
+</script>
+<template><section class="page"><header class="page-header"><div><p class="eyebrow">INBOX</p><h1>消息中心</h1><p>课程、考试与成绩动态，集中而不打扰。</p></div><el-button @click="readAll">全部已读</el-button></header><div class="message-list"><article v-for="item in items" :key="item.id" :class="{unread:!item.is_read}" @click="read(item)"><i></i><div><small>{{ item.type }} · {{ new Date(item.created_at).toLocaleString() }}</small><h3>{{ item.title }}</h3><p>{{ item.content }}</p></div></article><el-empty v-if="!items.length" description="暂无消息" /></div></section></template>

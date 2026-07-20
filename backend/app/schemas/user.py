@@ -49,7 +49,13 @@ class UserResponse(BaseModel):
     nickname: str
     avatar_url: str | None
     status: str
+    roles: list[str] = []
     created_at: datetime
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def serialize_roles(cls, value):
+        return [item.code if hasattr(item, "code") else str(item) for item in (value or [])]
 
 
 class TokenResponse(BaseModel):
@@ -58,4 +64,3 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     user: UserResponse
-
