@@ -38,6 +38,13 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-q --disable-warnings --maxfail=1"
 
+[tool.coverage.run]
+concurrency = ["greenlet", "thread"]
+source = ["app"]
+
+[tool.coverage.report]
+show_missing = true
+
 [tool.setuptools.packages.find]
 include = ["app*"]
 

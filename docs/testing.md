@@ -19,10 +19,10 @@
 ```bash
 cd backend
 .venv/bin/ruff check app tests locustfile.py
-.venv/bin/python -m pytest --cov=app --cov-report=term-missing
+.venv/bin/python -m pytest --cov=app --cov-fail-under=85 --cov-report=term-missing
 ```
 
-2026-07-20 本地验证基线为 `20 passed`、应用总代码覆盖率 `75%`。覆盖率是定位薄弱区域的指标，不代表业务正确性的充分条件；优先补充 Service 异常分支和并发边界测试。
+2026-07-20 本地验证基线为 `25 passed`、应用总代码覆盖率 `90.37%`。Coverage 已启用 greenlet/thread 并发追踪，避免 SQLAlchemy 异步 greenlet 切换后的代码被漏记；CI 以 `85%` 为硬门槛。测试包含考试并发重复提交、Redis 不可用时进度写入返回 503、进度读取降级数据库，以及通知缓存故障降级。
 
 前端质量检查：
 

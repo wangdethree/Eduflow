@@ -80,14 +80,14 @@ INITIAL_ADMIN_PASSWORD=请设置至少8位的强密码
 ```bash
 cd backend
 .venv/bin/ruff check app tests locustfile.py
-.venv/bin/python -m pytest --cov=app
+.venv/bin/python -m pytest --cov=app --cov-fail-under=85
 
 cd ../frontend
 npm run lint
 npm run build
 ```
 
-当前本地验证基线：后端 `20 passed`，应用代码覆盖率 `75%`；前端 ESLint 与生产构建通过；`npm audit --omit=dev` 无已知漏洞。压测脚本已通过 Locust 用户发现检查，实际容量数据需在目标部署环境运行后记录。
+当前本地验证基线：后端 `25 passed`，应用代码覆盖率 `90.37%`，CI 强制覆盖率不得低于 `85%`；前端 ESLint 与生产构建通过；`npm audit --omit=dev` 无已知漏洞。真实依赖集成与固定规格 Locust 结果见测试文档和性能报告。
 
 ## 项目文档
 
@@ -96,6 +96,7 @@ npm run build
 - [API 使用说明](docs/api.md)
 - [部署与运维](docs/deployment.md)
 - [测试与压测](docs/testing.md)
+- [2026-07-20 性能报告](docs/performance-report-2026-07-20.md)
 - [面试说明](docs/interview-guide.md)
 
 ## 目录结构
