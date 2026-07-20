@@ -4,7 +4,11 @@ import type { ApiResponse, TokenData, User } from '@/types'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({ user: JSON.parse(localStorage.getItem('user') || 'null') as User | null }),
-  getters: { isAuthenticated: () => Boolean(localStorage.getItem('access_token')), primaryRole: (state) => state.user?.roles?.[0] || 'student' },
+  getters: {
+    // 同时依赖响应式用户状态，确保登录后路由守卫立即重新计算。
+    isAuthenticated: (state) => Boolean(state.user && localStorage.getItem('access_token')),
+    primaryRole: (state) => state.user?.roles?.[0] || 'student',
+  },
   actions: {
     async login(account: string, password: string) {
       const { data } = await request.post<ApiResponse<TokenData>>('/auth/login', { account, password })
