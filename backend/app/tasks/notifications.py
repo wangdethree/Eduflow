@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.db.session import AsyncSessionLocal
 from app.models.exam import Exam
-from app.models.learning import CourseEnrollment
+from app.models.learning import CourseEnrollment, EnrollmentStatus
 from app.models.notification import Notification, NotificationType, UserNotification
 from app.tasks.celery_app import celery_app
 
@@ -35,7 +35,9 @@ async def create_exam_reminders() -> int:
                 await session.scalars(
                     select(CourseEnrollment.user_id).where(
                         CourseEnrollment.course_id == exam.course_id,
-                        CourseEnrollment.status.in_(["active", "completed"]),
+                        CourseEnrollment.status.in_(
+                            [EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED]
+                        ),
                     )
                 )
             )
@@ -59,4 +61,3 @@ async def create_exam_reminders() -> int:
 @celery_app.task(name="notifications.send_exam_reminders")
 def send_exam_reminders() -> int:
     return asyncio.run(create_exam_reminders())
-

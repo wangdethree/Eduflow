@@ -25,7 +25,7 @@ from app.models.exam import (
     QuestionType,
     WrongQuestion,
 )
-from app.models.learning import CourseEnrollment
+from app.models.learning import CourseEnrollment, EnrollmentStatus
 from app.models.notification import Notification, NotificationType, UserNotification
 from app.models.user import User
 from app.repositories.exam import ExamRepository
@@ -118,7 +118,9 @@ class ExamService:
             await self.session.scalars(
                 select(CourseEnrollment.user_id).where(
                     CourseEnrollment.course_id == exam.course_id,
-                    CourseEnrollment.status.in_(["active", "completed"]),
+                    CourseEnrollment.status.in_(
+                        [EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED]
+                    ),
                 )
             )
         )

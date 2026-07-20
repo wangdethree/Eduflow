@@ -7,6 +7,7 @@ from app.db.session import AsyncSessionLocal
 from app.models.course import Course, CourseCategory, CourseStatus
 from app.models.exam import ExamAnswer, WrongQuestion
 from app.models.learning import CourseEnrollment, EnrollmentStatus
+from app.models.notification import Notification, UserNotification
 from app.models.rbac import Permission, Role
 from app.models.user import User
 from app.services import exam as exam_service
@@ -131,7 +132,18 @@ async def test_exam_auto_grading_idempotency_and_wrong_book(client, monkeypatch)
             "duration_minutes": 60,
         },
     )
+    assert exam.status_code == 201
     exam_id = exam.json()["data"]["id"]
+    async with AsyncSessionLocal() as session:
+        publish_notice = await session.scalar(
+            select(Notification).where(Notification.source_key == f"exam_publish:{exam_id}")
+        )
+        assert publish_notice is not None
+        assert await session.scalar(
+            select(func.count(UserNotification.id)).where(
+                UserNotification.notification_id == publish_notice.id
+            )
+        ) == 1
     started = await client.post(f"/api/v1/exams/{exam_id}/start", headers=student_headers)
     assert len(started.json()["data"]["questions"]) == 2
     submission = {
