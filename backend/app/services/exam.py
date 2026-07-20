@@ -2,7 +2,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+import structlog
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +12,7 @@ from app.core.exceptions import (
     ConflictException,
     PermissionDeniedException,
     ResourceNotFoundException,
+    ServiceUnavailableException,
 )
 from app.core.redis import get_redis_client
 from app.models.course import Course, CourseStatus
@@ -47,6 +50,8 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then
 end
 return 0
 """
+
+logger = structlog.get_logger()
 
 
 def aware(value: datetime) -> datetime:
@@ -256,7 +261,10 @@ class ExamService:
         self._ensure_exam_open(exam)
         lock_key = f"exam:submit_lock:{exam.id}:{self.current_user.id}"
         lock_token = uuid4().hex
-        locked = await self.redis.set(lock_key, lock_token, ex=15, nx=True)
+        try:
+            locked = await self.redis.set(lock_key, lock_token, ex=15, nx=True)
+        except RedisError as exc:
+            raise ServiceUnavailableException("提交服务暂时不可用，请稍后重试") from exc
         if not locked:
             latest = await self.repository.get_attempt(exam.id, self.current_user.id)
             if latest and latest.status == AttemptStatus.GRADED:
@@ -265,7 +273,11 @@ class ExamService:
         try:
             return await self._grade(exam, attempt, payload)
         finally:
-            await self.redis.eval(RELEASE_LOCK_SCRIPT, 1, lock_key, lock_token)
+            try:
+                await self.redis.eval(RELEASE_LOCK_SCRIPT, 1, lock_key, lock_token)
+            except RedisError:
+                # 锁有 15 秒过期时间，释放失败不应覆盖已经成功提交的成绩响应。
+                await logger.awarning("exam_submit_lock_release_failed", lock_key=lock_key)
 
     async def _grade(
         self, exam: Exam, attempt: ExamAttempt, payload: ExamSubmitRequest

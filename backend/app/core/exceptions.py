@@ -31,3 +31,7 @@ class ConflictException(AppException):
     def __init__(self, message: str, code: int = 10009) -> None:
         super().__init__(code, message, 409)
 
+
+class ServiceUnavailableException(AppException):
+    def __init__(self, message: str, code: int = 90001) -> None:
+        super().__init__(code, message, 503)

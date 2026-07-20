@@ -1,5 +1,7 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 
+from redis.exceptions import RedisError
 from sqlalchemy import func, select
 
 from app.core.security import hash_password
@@ -31,6 +33,21 @@ class FakeRedisLock:
             del self.values[key]
             return 1
         return 0
+
+
+class ContendedRedisLock(FakeRedisLock):
+    async def set(self, key, value, ex=None, nx=False):
+        if nx and key in self.values:
+            return False
+        self.values[key] = value
+        # 给第二个并发请求留出观察锁的时间，稳定复现重复提交分支。
+        await asyncio.sleep(0.1)
+        return True
+
+
+class UnavailableRedisLock(FakeRedisLock):
+    async def set(self, key, value, ex=None, nx=False):
+        raise RedisError("Redis unavailable")
 
 
 async def create_exam_scene() -> int:
@@ -79,6 +96,53 @@ async def login(client, account: str, password: str) -> dict[str, str]:
         "/api/v1/auth/login", json={"account": account, "password": password}
     )
     return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
+
+
+async def create_ready_submission(client, monkeypatch, redis) -> tuple[int, dict, dict]:
+    monkeypatch.setattr(exam_service, "get_redis_client", lambda: redis)
+    course_id = await create_exam_scene()
+    teacher_headers = await login(client, "exam_teacher", "Teacher123")
+    student_headers = await login(client, "exam_student", "Student123")
+    question = await client.post(
+        "/api/v1/questions",
+        headers=teacher_headers,
+        json={
+            "stem": "并发提交应如何处理？",
+            "question_type": "single",
+            "options": {"A": "加分布式锁", "B": "重复写入"},
+            "correct_answers": ["A"],
+        },
+    )
+    question_id = question.json()["data"]["id"]
+    paper = await client.post(
+        "/api/v1/papers", headers=teacher_headers, json={"title": "并发提交试卷"}
+    )
+    paper_id = paper.json()["data"]["id"]
+    await client.post(
+        f"/api/v1/papers/{paper_id}/questions",
+        headers=teacher_headers,
+        json={"question_id": question_id, "score": 10},
+    )
+    now = datetime.now(UTC)
+    exam = await client.post(
+        "/api/v1/exams",
+        headers=teacher_headers,
+        json={
+            "course_id": course_id,
+            "paper_id": paper_id,
+            "title": "并发提交考试",
+            "starts_at": (now - timedelta(minutes=1)).isoformat(),
+            "ends_at": (now + timedelta(hours=1)).isoformat(),
+            "duration_minutes": 60,
+        },
+    )
+    exam_id = exam.json()["data"]["id"]
+    await client.post(f"/api/v1/exams/{exam_id}/start", headers=student_headers)
+    submission = {
+        "idempotency_key": "concurrent-submit-0001",
+        "answers": [{"question_id": question_id, "selected_answers": ["A"]}],
+    }
+    return exam_id, student_headers, submission
 
 
 async def test_exam_auto_grading_idempotency_and_wrong_book(client, monkeypatch):
@@ -235,3 +299,37 @@ async def test_teacher_question_bank_and_paper_management(client):
     )
     assert deleted_question.status_code == 200
     assert (await client.delete(f"/api/v1/papers/{paper_id}", headers=headers)).status_code == 200
+
+
+async def test_concurrent_exam_submission_only_grades_once(client, monkeypatch):
+    exam_id, headers, submission = await create_ready_submission(
+        client, monkeypatch, ContendedRedisLock()
+    )
+    responses = await asyncio.gather(
+        *[
+            client.post(
+                f"/api/v1/exams/{exam_id}/submit", headers=headers, json=submission
+            )
+            for _ in range(2)
+        ]
+    )
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    conflict = next(response for response in responses if response.status_code == 409)
+    assert conflict.json()["code"] == 60014
+    async with AsyncSessionLocal() as session:
+        assert await session.scalar(select(func.count(ExamAnswer.id))) == 1
+
+
+async def test_exam_submission_returns_503_when_redis_is_unavailable(
+    client, monkeypatch
+):
+    exam_id, headers, submission = await create_ready_submission(
+        client, monkeypatch, UnavailableRedisLock()
+    )
+    response = await client.post(
+        f"/api/v1/exams/{exam_id}/submit", headers=headers, json=submission
+    )
+    assert response.status_code == 503
+    assert response.json()["code"] == 90001
+    async with AsyncSessionLocal() as session:
+        assert await session.scalar(select(func.count(ExamAnswer.id))) == 0

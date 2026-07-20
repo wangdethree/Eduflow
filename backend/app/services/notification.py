@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 
+import structlog
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -9,6 +11,8 @@ from app.core.exceptions import ResourceNotFoundException
 from app.core.redis import get_redis_client
 from app.models.notification import Notification, NotificationType, UserNotification
 from app.models.user import User
+
+logger = structlog.get_logger()
 
 
 class NotificationService:
@@ -46,7 +50,7 @@ class NotificationService:
             await self.session.commit()
             await self.session.refresh(notification)
             for user_id in unique_user_ids:
-                await self.redis.delete(self._unread_key(user_id))
+                await self._invalidate_unread(user_id)
         return notification
 
     async def list_messages(
@@ -68,7 +72,10 @@ class NotificationService:
 
     async def unread_count(self, user_id: int) -> int:
         key = self._unread_key(user_id)
-        cached = await self.redis.get(key)
+        try:
+            cached = await self.redis.get(key)
+        except RedisError:
+            cached = None
         if cached is not None:
             return int(cached)
         count = await self.session.scalar(
@@ -78,7 +85,10 @@ class NotificationService:
                 UserNotification.deleted_at.is_(None),
             )
         ) or 0
-        await self.redis.set(key, count, ex=3600)
+        try:
+            await self.redis.set(key, count, ex=3600)
+        except RedisError:
+            await logger.awarning("notification_unread_cache_write_failed", user_id=user_id)
         return count
 
     async def mark_read(self, user_id: int, message_id: int) -> None:
@@ -94,7 +104,7 @@ class NotificationService:
         if message.read_at is None:
             message.read_at = datetime.now(UTC)
             await self.session.commit()
-            await self.redis.delete(self._unread_key(user_id))
+            await self._invalidate_unread(user_id)
 
     async def mark_all_read(self, user_id: int) -> None:
         await self.session.execute(
@@ -107,7 +117,10 @@ class NotificationService:
             .values(read_at=datetime.now(UTC))
         )
         await self.session.commit()
-        await self.redis.set(self._unread_key(user_id), 0, ex=3600)
+        try:
+            await self.redis.set(self._unread_key(user_id), 0, ex=3600)
+        except RedisError:
+            await logger.awarning("notification_unread_cache_write_failed", user_id=user_id)
 
     async def delete_message(self, user_id: int, message_id: int) -> None:
         message = await self.session.scalar(
@@ -119,7 +132,14 @@ class NotificationService:
             raise ResourceNotFoundException("消息不存在", 80010)
         message.deleted_at = datetime.now(UTC)
         await self.session.commit()
-        await self.redis.delete(self._unread_key(user_id))
+        await self._invalidate_unread(user_id)
+
+    async def _invalidate_unread(self, user_id: int) -> None:
+        try:
+            await self.redis.delete(self._unread_key(user_id))
+        except RedisError:
+            # 通知数据库已经提交，缓存失效失败只影响短期性能，不影响正确性。
+            await logger.awarning("notification_unread_cache_invalidate_failed", user_id=user_id)
 
     @staticmethod
     def _unread_key(user_id: int) -> str:

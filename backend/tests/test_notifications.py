@@ -1,3 +1,5 @@
+from redis.exceptions import RedisError
+
 from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal
 from app.models.rbac import Permission, Role
@@ -19,6 +21,17 @@ class FakeRedis:
     async def delete(self, key):
         self.values.pop(key, None)
         return 1
+
+
+class UnavailableRedis:
+    async def get(self, *args, **kwargs):
+        raise RedisError("Redis unavailable")
+
+    async def set(self, *args, **kwargs):
+        raise RedisError("Redis unavailable")
+
+    async def delete(self, *args, **kwargs):
+        raise RedisError("Redis unavailable")
 
 
 async def create_users() -> tuple[int, int]:
@@ -78,3 +91,32 @@ async def test_notification_unread_and_read_flow(client, monkeypatch):
     assert marked.status_code == 200
     after = await client.get("/api/v1/notifications/unread-count", headers=receiver_headers)
     assert after.json()["data"]["count"] == 0
+
+
+async def test_notification_cache_failure_falls_back_to_database(client, monkeypatch):
+    monkeypatch.setattr(
+        notification_service, "get_redis_client", lambda: UnavailableRedis()
+    )
+    _, receiver_id = await create_users()
+    manager_headers = await login(client, "notice_admin", "Manager123")
+    receiver_headers = await login(client, "notice_user", "Receiver123")
+    created = await client.post(
+        "/api/v1/notifications/broadcast",
+        headers=manager_headers,
+        json={
+            "title": "缓存故障演练",
+            "content": "Redis 故障时仍从数据库读取通知。",
+            "notification_type": "system",
+            "user_ids": [receiver_id],
+        },
+    )
+    assert created.status_code == 201
+    unread = await client.get("/api/v1/notifications/unread-count", headers=receiver_headers)
+    assert unread.status_code == 200
+    assert unread.json()["data"]["count"] == 1
+    messages = await client.get("/api/v1/notifications", headers=receiver_headers)
+    marked = await client.post(
+        f"/api/v1/notifications/{messages.json()['data'][0]['id']}/read",
+        headers=receiver_headers,
+    )
+    assert marked.status_code == 200

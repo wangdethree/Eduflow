@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 
+from redis.exceptions import RedisError
 from sqlalchemy import select
 
 from app.core.security import hash_password
@@ -56,6 +57,14 @@ class FakeRedis:
         for key in list(self.values):
             if key.startswith("learning:progress:"):
                 yield key
+
+
+class UnavailableRedis:
+    async def eval(self, *args, **kwargs):
+        raise RedisError("Redis unavailable")
+
+    async def get(self, *args, **kwargs):
+        raise RedisError("Redis unavailable")
 
 
 async def create_learning_scene() -> tuple[int, int]:
@@ -181,3 +190,48 @@ async def test_progress_requires_enrollment(client, monkeypatch):
         },
     )
     assert response.status_code == 409
+
+
+async def test_progress_redis_failure_and_database_read_fallback(client, monkeypatch):
+    monkeypatch.setattr(
+        learning_service, "get_redis_client", lambda: UnavailableRedis()
+    )
+    course_id, lesson_id = await create_learning_scene()
+    headers = await learner_headers(client)
+    await client.post(f"/api/v1/learning/courses/{course_id}/enroll", headers=headers)
+
+    failed = await client.post(
+        f"/api/v1/learning/courses/{course_id}/progress",
+        headers=headers,
+        json={
+            "lesson_id": lesson_id,
+            "position_seconds": 50,
+            "learned_seconds_delta": 20,
+            "client_updated_at": 100,
+        },
+    )
+    assert failed.status_code == 503
+    assert failed.json()["code"] == 90001
+
+    async with AsyncSessionLocal() as session:
+        enrollment = await session.scalar(select(CourseEnrollment))
+        assert enrollment is not None
+        session.add(
+            LessonProgress(
+                user_id=enrollment.user_id,
+                course_id=course_id,
+                lesson_id=lesson_id,
+                last_position=40,
+                learned_seconds=30,
+                progress_percent=40,
+                client_updated_at=90,
+                last_learned_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+    fallback = await client.get(
+        f"/api/v1/learning/lessons/{lesson_id}/progress", headers=headers
+    )
+    assert fallback.status_code == 200
+    assert fallback.json()["data"]["position"] == 40

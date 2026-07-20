@@ -3,9 +3,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictException, ResourceNotFoundException
+from app.core.exceptions import (
+    ConflictException,
+    ResourceNotFoundException,
+    ServiceUnavailableException,
+)
 from app.core.redis import get_redis_client
 from app.models.course import Course, CourseStatus
 from app.models.learning import CourseEnrollment, CourseFavorite, EnrollmentStatus
@@ -129,10 +134,18 @@ class LearningService:
             "learned_delta": payload.learned_seconds_delta,
             "updated_at": payload.client_updated_at,
         }
-        return await self.cache.save(data)
+        try:
+            return await self.cache.save(data)
+        except RedisError as exc:
+            # 进度乱序合并依赖 Redis Lua 原子性，故障时拒绝写入比产生倒退数据更安全。
+            raise ServiceUnavailableException("学习进度服务暂时不可用，请稍后重试") from exc
 
     async def get_lesson_progress(self, lesson_id: int) -> dict[str, Any]:
-        cached = await self.cache.get(self.current_user.id, lesson_id)
+        try:
+            cached = await self.cache.get(self.current_user.id, lesson_id)
+        except RedisError:
+            # 读取可安全降级到最近一次落库进度。
+            cached = None
         if cached:
             return cached
         progress = await self.repository.get_progress(self.current_user.id, lesson_id)
