@@ -29,6 +29,7 @@ dev = [
   "pytest-cov>=6,<7",
   "ruff>=0.9,<1",
   "mypy>=1.14,<2",
+  "locust>=2.32,<3",
 ]
 
 [tool.pytest.ini_options]
