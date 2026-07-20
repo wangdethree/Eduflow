@@ -5,18 +5,21 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps.auth import CurrentUser, DatabaseSession, require_permissions
 from app.core.response import success
+from app.models.course import CourseStatus
 from app.repositories.course import CourseRepository
 from app.schemas.course import (
     CategoryCreate,
     CategoryResponse,
     ChapterCreate,
     ChapterResponse,
+    ChapterUpdate,
     CourseAuditRequest,
     CourseCreate,
     CourseResponse,
     CourseUpdate,
     LessonCreate,
     LessonResponse,
+    LessonUpdate,
 )
 from app.services.course import CourseService
 
@@ -88,6 +91,39 @@ async def teacher_courses(
     return success([CourseResponse.model_validate(item).model_dump(mode="json") for item in items])
 
 
+@router.get("/teacher/courses/{course_id}", summary="教师课程详情")
+async def teacher_course_detail(
+    course_id: int, current_user: CurrentUser, _: CourseEditor, session: DatabaseSession
+) -> dict:
+    course = await CourseService(session, current_user).get_owned_course(course_id)
+    return success(CourseResponse.model_validate(course).model_dump(mode="json"))
+
+
+@router.get("/admin/courses", summary="管理端课程列表")
+async def admin_courses(
+    session: DatabaseSession,
+    _: CourseAuditor,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status: CourseStatus | None = CourseStatus.PENDING_REVIEW,
+    keyword: str | None = Query(default=None, max_length=100),
+) -> dict:
+    items, total = await CourseRepository(session).list_for_audit(
+        page, page_size, status, keyword
+    )
+    return success(
+        {
+            "items": [
+                CourseResponse.model_validate(item).model_dump(mode="json") for item in items
+            ],
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "pages": ceil(total / page_size) if total else 0,
+        }
+    )
+
+
 @router.post("/courses", status_code=201, summary="创建课程")
 async def create_course(
     payload: CourseCreate,
@@ -131,6 +167,33 @@ async def add_chapter(
     return success(ChapterResponse.model_validate(chapter).model_dump(mode="json"))
 
 
+@router.patch("/courses/{course_id}/chapters/{chapter_id}", summary="编辑章节")
+async def update_chapter(
+    course_id: int,
+    chapter_id: int,
+    payload: ChapterUpdate,
+    _: CourseEditor,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> dict:
+    chapter = await CourseService(session, current_user).update_chapter(
+        course_id, chapter_id, payload
+    )
+    return success(ChapterResponse.model_validate(chapter).model_dump(mode="json"))
+
+
+@router.delete("/courses/{course_id}/chapters/{chapter_id}", summary="删除章节")
+async def delete_chapter(
+    course_id: int,
+    chapter_id: int,
+    _: CourseEditor,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> dict:
+    await CourseService(session, current_user).delete_chapter(course_id, chapter_id)
+    return success(message="章节已删除")
+
+
 @router.post(
     "/courses/{course_id}/chapters/{chapter_id}/lessons", status_code=201, summary="创建课时"
 )
@@ -144,6 +207,39 @@ async def add_lesson(
 ) -> dict:
     lesson = await CourseService(session, current_user).add_lesson(course_id, chapter_id, payload)
     return success(LessonResponse.model_validate(lesson).model_dump(mode="json"))
+
+
+@router.patch(
+    "/courses/{course_id}/chapters/{chapter_id}/lessons/{lesson_id}", summary="编辑课时"
+)
+async def update_lesson(
+    course_id: int,
+    chapter_id: int,
+    lesson_id: int,
+    payload: LessonUpdate,
+    _: CourseEditor,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> dict:
+    lesson = await CourseService(session, current_user).update_lesson(
+        course_id, chapter_id, lesson_id, payload
+    )
+    return success(LessonResponse.model_validate(lesson).model_dump(mode="json"))
+
+
+@router.delete(
+    "/courses/{course_id}/chapters/{chapter_id}/lessons/{lesson_id}", summary="删除课时"
+)
+async def delete_lesson(
+    course_id: int,
+    chapter_id: int,
+    lesson_id: int,
+    _: CourseEditor,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> dict:
+    await CourseService(session, current_user).delete_lesson(course_id, chapter_id, lesson_id)
+    return success(message="课时已删除")
 
 
 @router.post("/courses/{course_id}/submit-review", summary="提交课程审核")

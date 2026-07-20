@@ -76,10 +76,73 @@ async def test_course_creation_review_and_publication(client):
         json={"title": "创建第一个接口", "duration_seconds": 600},
     )
     assert lesson.status_code == 201
+    lesson_id = lesson.json()["data"]["id"]
+
+    second_chapter = await client.post(
+        f"/api/v1/courses/{course_id}/chapters",
+        headers=teacher_headers,
+        json={"title": "第二章 深入实践"},
+    )
+    second_chapter_id = second_chapter.json()["data"]["id"]
+    moved_chapter = await client.patch(
+        f"/api/v1/courses/{course_id}/chapters/{second_chapter_id}",
+        headers=teacher_headers,
+        json={"title": "第一章 工程实践", "sort_order": 1},
+    )
+    assert moved_chapter.json()["data"]["sort_order"] == 1
+    extra_lesson = await client.post(
+        f"/api/v1/courses/{course_id}/chapters/{second_chapter_id}/lessons",
+        headers=teacher_headers,
+        json={"title": "依赖注入实践", "duration_seconds": 120},
+    )
+    extra_lesson_id = extra_lesson.json()["data"]["id"]
+    updated_lesson = await client.patch(
+        f"/api/v1/courses/{course_id}/chapters/{second_chapter_id}/lessons/{extra_lesson_id}",
+        headers=teacher_headers,
+        json={"title": "依赖注入与测试", "duration_seconds": 300},
+    )
+    assert updated_lesson.json()["data"]["duration_seconds"] == 300
+    disposable_lesson = await client.post(
+        f"/api/v1/courses/{course_id}/chapters/{second_chapter_id}/lessons",
+        headers=teacher_headers,
+        json={"title": "待删除课时", "duration_seconds": 60},
+    )
+    deleted_lesson = await client.delete(
+        f"/api/v1/courses/{course_id}/chapters/{second_chapter_id}/lessons/"
+        f"{disposable_lesson.json()['data']['id']}",
+        headers=teacher_headers,
+    )
+    assert deleted_lesson.status_code == 200
+    disposable_chapter = await client.post(
+        f"/api/v1/courses/{course_id}/chapters",
+        headers=teacher_headers,
+        json={"title": "待删除章节"},
+    )
+    deleted_chapter = await client.delete(
+        f"/api/v1/courses/{course_id}/chapters/{disposable_chapter.json()['data']['id']}",
+        headers=teacher_headers,
+    )
+    assert deleted_chapter.status_code == 200
+    teacher_detail = await client.get(
+        f"/api/v1/teacher/courses/{course_id}", headers=teacher_headers
+    )
+    detail_data = teacher_detail.json()["data"]
+    assert detail_data["total_duration"] == 900
+    assert [chapter["sort_order"] for chapter in detail_data["chapters"]] == [1, 2]
+    assert any(
+        item["id"] == lesson_id
+        for chapter in detail_data["chapters"]
+        for item in chapter["lessons"]
+    )
+
     submitted = await client.post(
         f"/api/v1/courses/{course_id}/submit-review", headers=teacher_headers
     )
     assert submitted.json()["data"]["status"] == "pending_review"
+
+    pending_courses = await client.get("/api/v1/admin/courses", headers=auditor_headers)
+    assert pending_courses.status_code == 200
+    assert pending_courses.json()["data"]["items"][0]["id"] == course_id
 
     teacher_audit = await client.post(
         f"/api/v1/courses/{course_id}/audit",
@@ -97,7 +160,7 @@ async def test_course_creation_review_and_publication(client):
     public_list = await client.get("/api/v1/courses", params={"keyword": "FastAPI"})
     assert public_list.json()["data"]["total"] == 1
     detail = await client.get(f"/api/v1/courses/{course_id}")
-    assert detail.json()["data"]["chapters"][0]["lessons"][0]["duration_seconds"] == 600
+    assert detail.json()["data"]["total_duration"] == 900
 
 
 async def test_teacher_cannot_edit_another_teachers_course(client):

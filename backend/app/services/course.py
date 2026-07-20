@@ -21,9 +21,11 @@ from app.repositories.course import CourseRepository
 from app.schemas.course import (
     CategoryCreate,
     ChapterCreate,
+    ChapterUpdate,
     CourseCreate,
     CourseUpdate,
     LessonCreate,
+    LessonUpdate,
 )
 
 
@@ -48,6 +50,9 @@ class CourseService:
         self.session.add(course)
         await self.session.commit()
         return await self._reload(course.id)
+
+    async def get_owned_course(self, course_id: int) -> Course:
+        return await self._owned_course(course_id)
 
     async def update_course(self, course_id: int, payload: CourseUpdate) -> Course:
         course = await self._owned_course(course_id)
@@ -102,6 +107,68 @@ class CourseService:
         await self.session.commit()
         await self.session.refresh(lesson)
         return lesson
+
+    async def update_chapter(
+        self, course_id: int, chapter_id: int, payload: ChapterUpdate
+    ) -> CourseChapter:
+        course = await self._owned_editable_course(course_id)
+        chapter = await self._course_chapter(course.id, chapter_id)
+        values = payload.model_dump(exclude_unset=True)
+        target_order = values.pop("sort_order", None)
+        for field, value in values.items():
+            setattr(chapter, field, value)
+        if target_order is not None:
+            await self._move_chapter(course.id, chapter, target_order)
+        await self.session.commit()
+        await self.session.refresh(chapter, ["lessons"])
+        return chapter
+
+    async def delete_chapter(self, course_id: int, chapter_id: int) -> None:
+        course = await self._owned_editable_course(course_id)
+        chapter = await self._course_chapter(course.id, chapter_id)
+        course.total_duration = max(
+            0, course.total_duration - sum(lesson.duration_seconds for lesson in chapter.lessons)
+        )
+        await self.session.delete(chapter)
+        await self.session.flush()
+        await self._normalize_chapter_orders(course.id)
+        await self.session.commit()
+
+    async def update_lesson(
+        self,
+        course_id: int,
+        chapter_id: int,
+        lesson_id: int,
+        payload: LessonUpdate,
+    ) -> CourseLesson:
+        course = await self._owned_editable_course(course_id)
+        chapter = await self._course_chapter(course.id, chapter_id)
+        lesson = await self._chapter_lesson(chapter.id, lesson_id)
+        previous_duration = lesson.duration_seconds
+        values = payload.model_dump(exclude_unset=True)
+        target_order = values.pop("sort_order", None)
+        for field, value in values.items():
+            setattr(lesson, field, value)
+        if target_order is not None:
+            await self._move_lesson(chapter.id, lesson, target_order)
+        course.total_duration = max(
+            0, course.total_duration - previous_duration + lesson.duration_seconds
+        )
+        await self.session.commit()
+        await self.session.refresh(lesson)
+        return lesson
+
+    async def delete_lesson(
+        self, course_id: int, chapter_id: int, lesson_id: int
+    ) -> None:
+        course = await self._owned_editable_course(course_id)
+        chapter = await self._course_chapter(course.id, chapter_id)
+        lesson = await self._chapter_lesson(chapter.id, lesson_id)
+        course.total_duration = max(0, course.total_duration - lesson.duration_seconds)
+        await self.session.delete(lesson)
+        await self.session.flush()
+        await self._normalize_lesson_orders(chapter.id)
+        await self.session.commit()
 
     async def submit_review(self, course_id: int) -> Course:
         course = await self._owned_course(course_id)
@@ -159,6 +226,74 @@ class CourseService:
         category = await self.session.get(CourseCategory, category_id)
         if category is None or not category.is_enabled:
             raise ResourceNotFoundException("课程分类不存在或已停用", 40010)
+
+    async def _course_chapter(self, course_id: int, chapter_id: int) -> CourseChapter:
+        chapter = await self.session.get(CourseChapter, chapter_id)
+        if chapter is None or chapter.course_id != course_id:
+            raise ResourceNotFoundException("章节不存在", 40011)
+        return chapter
+
+    async def _chapter_lesson(self, chapter_id: int, lesson_id: int) -> CourseLesson:
+        lesson = await self.session.get(CourseLesson, lesson_id)
+        if lesson is None or lesson.chapter_id != chapter_id:
+            raise ResourceNotFoundException("课时不存在", 40012)
+        return lesson
+
+    async def _move_chapter(
+        self, course_id: int, target: CourseChapter, target_order: int
+    ) -> None:
+        chapters = list(
+            await self.session.scalars(
+                select(CourseChapter)
+                .where(CourseChapter.course_id == course_id)
+                .order_by(CourseChapter.sort_order)
+            )
+        )
+        chapters.remove(target)
+        chapters.insert(min(target_order - 1, len(chapters)), target)
+        await self._replace_orders(chapters)
+
+    async def _move_lesson(
+        self, chapter_id: int, target: CourseLesson, target_order: int
+    ) -> None:
+        lessons = list(
+            await self.session.scalars(
+                select(CourseLesson)
+                .where(CourseLesson.chapter_id == chapter_id)
+                .order_by(CourseLesson.sort_order)
+            )
+        )
+        lessons.remove(target)
+        lessons.insert(min(target_order - 1, len(lessons)), target)
+        await self._replace_orders(lessons)
+
+    async def _normalize_chapter_orders(self, course_id: int) -> None:
+        chapters = list(
+            await self.session.scalars(
+                select(CourseChapter)
+                .where(CourseChapter.course_id == course_id)
+                .order_by(CourseChapter.sort_order)
+            )
+        )
+        await self._replace_orders(chapters)
+
+    async def _normalize_lesson_orders(self, chapter_id: int) -> None:
+        lessons = list(
+            await self.session.scalars(
+                select(CourseLesson)
+                .where(CourseLesson.chapter_id == chapter_id)
+                .order_by(CourseLesson.sort_order)
+            )
+        )
+        await self._replace_orders(lessons)
+
+    async def _replace_orders(self, items: list[CourseChapter] | list[CourseLesson]) -> None:
+        # 先使用负数临时序号，避免 MySQL 唯一索引在交换顺序时冲突。
+        for index, item in enumerate(items, start=1):
+            item.sort_order = -index
+        await self.session.flush()
+        for index, item in enumerate(items, start=1):
+            item.sort_order = index
 
     async def _reload(self, course_id: int) -> Course:
         course = await self.repository.get_course(course_id)

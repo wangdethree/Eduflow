@@ -47,6 +47,16 @@ class LessonCreate(BaseModel):
     is_free_preview: bool = False
 
 
+class LessonUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=150)
+    lesson_type: str | None = Field(default=None, pattern=r"^(video|article)$")
+    content: str | None = Field(default=None, max_length=20000)
+    duration_seconds: int | None = Field(default=None, ge=0, le=86400)
+    sort_order: int | None = Field(default=None, ge=1)
+    is_required: bool | None = None
+    is_free_preview: bool | None = None
+
+
 class LessonResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -62,6 +72,11 @@ class LessonResponse(BaseModel):
 
 class ChapterCreate(BaseModel):
     title: str = Field(min_length=2, max_length=150)
+
+
+class ChapterUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=150)
+    sort_order: int | None = Field(default=None, ge=1)
 
 
 class ChapterResponse(BaseModel):
@@ -95,4 +110,3 @@ class CourseResponse(BaseModel):
 class CourseAuditRequest(BaseModel):
     approved: bool
     opinion: str = Field(default="", max_length=500)
-

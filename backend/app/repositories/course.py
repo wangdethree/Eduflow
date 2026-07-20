@@ -57,6 +57,31 @@ class CourseRepository:
         )
         return list(result.unique())
 
+    async def list_for_audit(
+        self,
+        page: int,
+        page_size: int,
+        status: CourseStatus | None,
+        keyword: str | None,
+    ) -> tuple[list[Course], int]:
+        filters = [Course.deleted_at.is_(None)]
+        if status is not None:
+            filters.append(Course.status == status)
+        if keyword:
+            filters.append(
+                or_(Course.title.contains(keyword), Course.description.contains(keyword))
+            )
+        total = await self.session.scalar(select(func.count(Course.id)).where(*filters)) or 0
+        statement = (
+            select(Course)
+            .where(*filters)
+            .order_by(Course.updated_at.desc(), Course.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .options(selectinload(Course.chapters).selectinload(CourseChapter.lessons))
+        )
+        return list((await self.session.scalars(statement)).unique()), total
+
     async def list_categories(self) -> list[CourseCategory]:
         return list(
             await self.session.scalars(
@@ -65,4 +90,3 @@ class CourseRepository:
                 .order_by(CourseCategory.sort_order, CourseCategory.id)
             )
         )
-
